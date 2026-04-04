@@ -1,0 +1,164 @@
+# contract_registry/subscriptions.yaml
+# This file is manually maintained.
+# Every inter-system data dependency must be listed here.
+# A subscription is a consumer's formal declaration of dependency.
+# Blast radius is computed from this file — not from the lineage graph.
+
+subscriptions:
+  # Week 3 -> Week 4: Automaton Auditor verdicts consumed by Cartographer
+  - contract_id: week3-automaton-auditor-verdicts
+    subscriber_id: week4-cartographer
+    subscriber_team: week4
+    fields_consumed:
+      - audit_id
+      - dimension_id
+      - final_score
+      - evidence_confidence
+      - evidence_found
+    breaking_fields:
+      - field: evidence_confidence
+        reason: >
+          Used for node ranking in lineage graph construction.
+          Scale change from 0.0-1.0 to 0-100 breaks ranking logic
+          and produces incorrect graph edge weights.
+      - field: final_score
+        reason: >
+          Used as quality weight in graph node metadata.
+          Scale change from 1-5 to 0-100 corrupts downstream quality assessments.
+      - field: dimension_id
+        reason: >
+          Used as categorical node label in lineage graph.
+          Enum change removes established graph node categories.
+    validation_mode: ENFORCE
+    registered_at: '2026-03-15T09:00:00Z'
+    contact: atnabon@week4-team.org
+
+  # Week 4 -> Week 7: Cartographer lineage consumed by Contract Enforcer
+  - contract_id: week4-cartographer-lineage
+    subscriber_id: week7-contract-enforcer
+    subscriber_team: week7
+    fields_consumed:
+      - snapshot_id
+      - nodes
+      - edges
+    breaking_fields:
+      - field: edges.confidence
+        reason: >
+          Used for blame chain confidence scoring in ViolationAttributor.
+          Scale or type change breaks attribution ranking.
+      - field: edges.relationship
+        reason: >
+          Enum used to filter PRODUCES/CONSUMES edges during lineage traversal.
+          Adding or removing values changes blast radius computation.
+      - field: nodes.node_id
+        reason: >
+          Stable identifier used to match lineage nodes to contract schemas.
+          Format change breaks all lineage-based attribution.
+    validation_mode: WARN
+    registered_at: '2026-03-20T09:00:00Z'
+    contact: atnabon@week7-team.org
+
+  # Week 5 -> Week 7: Ledger events consumed by Contract Enforcer
+  - contract_id: week5-ledger-events
+    subscriber_id: week7-contract-enforcer
+    subscriber_team: week7
+    fields_consumed:
+      - event_id
+      - stream_id
+      - stream_position
+      - global_position
+      - event_type
+      - event_version
+      - occurred_at
+      - recorded_at
+    breaking_fields:
+      - field: event_type
+        reason: >
+          Enum used for event classification and payload schema lookup.
+          New unregistered event types cause validation failures.
+      - field: stream_position
+        reason: >
+          OCC ordering invariant. Non-monotonic values break
+          event replay and aggregate reconstitution.
+      - field: event_version
+        reason: >
+          Used to select upcaster for payload deserialization.
+          Version outside registered range causes upcaster lookup failure.
+    validation_mode: ENFORCE
+    registered_at: '2026-03-22T09:00:00Z'
+    contact: atnabon@week7-team.org
+
+  # LangSmith traces -> Week 7: AI Contract Extensions
+  - contract_id: langsmith-trace-records
+    subscriber_id: week7-ai-extensions
+    subscriber_team: week7
+    fields_consumed:
+      - id
+      - run_type
+      - total_tokens
+      - prompt_tokens
+      - completion_tokens
+      - total_cost
+      - start_time
+      - end_time
+    breaking_fields:
+      - field: run_type
+        reason: >
+          Enum used to filter LLM runs for output schema violation rate tracking.
+          Adding unrecognized run types causes silent metric dilution.
+      - field: total_tokens
+        reason: >
+          Used in cost anomaly detection. Type change from int to float
+          or removal breaks cost tracking pipeline.
+    validation_mode: AUDIT
+    registered_at: '2026-03-25T09:00:00Z'
+    contact: atnabon@week7-team.org
+
+  # Week 3 -> Week 5: Audit verdicts consumed by Ledger event store
+  - contract_id: week3-automaton-auditor-verdicts
+    subscriber_id: week5-ledger-event-store
+    subscriber_team: week5
+    fields_consumed:
+      - audit_id
+      - dimension_id
+      - final_score
+      - evidence_confidence
+    breaking_fields:
+      - field: audit_id
+        reason: >
+          Used as correlation key in ExtractedFactsConsumed events.
+          Format change breaks event-to-verdict linkage.
+      - field: evidence_confidence
+        reason: >
+          Stored in event payload for audit trail.
+          Scale change propagates corrupted confidence into event stream.
+    validation_mode: WARN
+    registered_at: '2026-03-18T09:00:00Z'
+    contact: atnabon@week5-team.org
+
+  # Week 3 -> Week 7: Verdicts consumed by Contract Enforcer directly
+  - contract_id: week3-automaton-auditor-verdicts
+    subscriber_id: week7-contract-enforcer
+    subscriber_team: week7
+    fields_consumed:
+      - audit_id
+      - dimension_id
+      - final_score
+      - prosecutor_score
+      - defense_score
+      - tech_lead_score
+      - evidence_confidence
+      - reasoning
+      - dissent_summary
+    breaking_fields:
+      - field: evidence_confidence
+        reason: >
+          AI extension embedding drift baseline depends on 0.0-1.0 scale.
+          Scale change invalidates all stored baselines.
+      - field: final_score
+        reason: >
+          Used in LLM output schema violation rate computation.
+          Scale change from 1-5 corrupts violation rate metrics.
+    validation_mode: ENFORCE
+    registered_at: '2026-03-28T09:00:00Z'
+    contact: atnabon@week7-team.org

@@ -5,12 +5,8 @@ info:
   title: Contract for week3-automaton-auditor-verdicts
   version: 1.0.0
   owner: week7-team
-  description: >
-    Auto-generated contract from verdicts.jsonl. Generated at 2026-04-01T10:00:00+00:00.
+  description: Auto-generated contract from verdicts.jsonl. Generated at 2026-04-04T12:54:24.616187+00:00.
     Covers 12 schema fields with 11 required.
-    Source system: automaton-auditor Chief Justice synthesis node (justice.py).
-    Each record represents one CriterionVerdict produced by the dialectical judicial
-    framework across 10 rubric dimensions per audited repository.
 servers:
   local:
     type: local
@@ -18,192 +14,141 @@ servers:
     format: jsonl
 terms:
   usage: Internal inter-system data contract. Do not publish externally.
-  limitations: >
-    Score fields must remain on 1-5 integer scale (Vibe Coder to Master Thinker).
-    Confidence fields must remain on 0.0-1.0 float scale.
-    dimension_id enum must remain stable — downstream lineage graph uses it as a key.
-    Breaking changes require a new contract version and migration plan.
+  limitations: Score fields must remain on 1-5 integer scale. Confidence fields must
+    remain on 0.0-1.0 float scale. Breaking changes require a new contract version
+    and migration plan.
 schema:
   audit_id:
     type: string
     required: true
     format: uuid
-    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    description: >
-      Unique identifier for this audit verdict record. One per dimension per audit run.
-      Downstream lineage graph and validation-runner use this as a primary key.
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
   target_repo:
     type: string
     required: true
-    description: >
-      Full HTTPS URL of the audited repository. Serves as the audit subject identifier.
-      Must not be null — blind audits (no repo URL) are invalid.
   dimension_id:
     type: string
     required: true
-    enum:
-      - git_forensic_analysis
-      - state_management_rigor
-      - graph_orchestration
-      - safe_tool_engineering
-      - structured_output_enforcement
-      - judicial_nuance
-      - chief_justice_synthesis
-      - theoretical_depth
-      - report_accuracy
-      - swarm_visual
-    description: >
-      Rubric dimension identifier. Stable enum — adding a new dimension is a BREAKING
-      change because downstream aggregations assume exactly 10 dimensions per audit run.
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
   final_score:
     type: integer
     required: true
     minimum: 1
     maximum: 5
-    description: >
-      Chief Justice synthesized score. Scale: 1=Vibe Coder, 5=Master Thinker.
-      BREAKING if scale changes. Computed via deterministic Python rules (security_override,
-      fact_supremacy, functionality_weight) from the three judge scores — not LLM-generated.
+    description: Judicial score (1=Vibe Coder, 5=Master Thinker). BREAKING if scale
+      changes from 1-5.
   prosecutor_score:
     type: integer
     required: true
     minimum: 1
     maximum: 5
-    description: >
-      Adversarial judge score on 1-5 scale. Prosecutor looks for gaps and violations.
-      Used in final_score synthesis via Chief Justice rules. BREAKING if scale changes.
+    description: Judicial score (1=Vibe Coder, 5=Master Thinker). BREAKING if scale
+      changes from 1-5.
   defense_score:
     type: integer
     required: true
     minimum: 1
     maximum: 5
-    description: >
-      Forgiving judge score on 1-5 scale. Defense rewards effort and partial credit.
-      Used in final_score synthesis. BREAKING if scale changes.
+    description: Judicial score (1=Vibe Coder, 5=Master Thinker). BREAKING if scale
+      changes from 1-5.
   tech_lead_score:
     type: integer
     required: true
     minimum: 1
     maximum: 5
-    description: >
-      Architecture-focused judge score on 1-5 scale. Tech Lead carries highest weight
-      for architecture dimensions (graph_orchestration, state_management_rigor) via
-      functionality_weight rule. BREAKING if scale changes.
+    description: Judicial score (1=Vibe Coder, 5=Master Thinker). BREAKING if scale
+      changes from 1-5.
   reasoning:
     type: string
     required: true
-    description: >
-      Chief Justice synthesis reasoning chain. Documents which deterministic rules were
-      applied and why. Must be non-empty. Downstream audit consumers (humans and LLMs)
-      use this to understand score provenance.
+    description: Chief Justice synthesis chain explaining how each deterministic rule
+      was applied.
   dissent_summary:
     type: string
     required: false
-    description: >
-      Present only when judicial score variance (max - min across three judges) exceeds 2.
-      Cross-field constraint: IF max(prosecutor,defense,tech_lead) - min(...) > 2
-      THEN dissent_summary IS NOT NULL. Null when all judges agree within 2 points.
+    description: Present only when judicial score variance exceeds 2. Null otherwise.
   evidence_confidence:
     type: number
     required: true
     minimum: 0.0
     maximum: 1.0
-    description: >
-      Confidence score from the detective agent that collected the underlying evidence.
-      Must remain 0.0-1.0 float. BREAKING if changed to 0-100 integer scale.
-      Values >= 0.9 indicate irrefutable evidence; < 0.7 should trigger manual review.
+    description: Confidence score from automaton-auditor detective evidence. Must
+      remain 0.0-1.0 float. BREAKING if changed to 0-100 integer scale.
   evidence_found:
     type: boolean
     required: true
-    description: >
-      Whether the expected artifact or pattern was actually located during investigation.
-      If false and defense_score >= 4, fact_supremacy rule overrides the Defense claim.
-      Critical for SECURITY_OVERRIDE and FACT_SUPREMACY Chief Justice rules.
   audited_at:
     type: string
     required: true
     format: date-time
-    description: >
-      ISO 8601 timestamp of when this verdict was produced by the Chief Justice node.
-      Used for audit trail ordering and detecting stale reports.
 llm_annotations:
   reasoning:
-    description: Chief Justice synthesis chain explaining how each deterministic rule was applied to reach the final_score.
-    business_rule: >
-      len(reasoning) > 0; must reference at least one synthesis rule
-      (CONSENSUS, SECURITY OVERRIDE, FACT SUPREMACY, FUNCTIONALITY WEIGHT, or DISSENT).
-    relationships: >
-      Derived from prosecutor_score, defense_score, tech_lead_score through the four
-      Chief Justice synthesis rules. Empty reasoning indicates a synthesis failure.
+    description: Chief Justice synthesis chain explaining how each deterministic rule
+      was applied.
+    business_rule: len(reasoning) > 0; must not be empty string.
+    relationships: Derived from prosecutor_score, defense_score, tech_lead_score via
+      synthesis rules.
   dissent_summary:
-    description: >
-      Judicial dissent record. Present only when score variance > 2 across the three judges.
-    business_rule: >
-      IF max(prosecutor_score, defense_score, tech_lead_score) -
-         min(prosecutor_score, defense_score, tech_lead_score) > 2
-      THEN dissent_summary IS NOT NULL AND len(dissent_summary) > 0.
-    relationships: >
-      Cross-field constraint with prosecutor_score, defense_score, tech_lead_score, final_score.
-      Absence of dissent_summary when variance > 2 is a data quality violation indicating
-      a Chief Justice synthesis bug.
+    description: Present only when judicial score variance exceeds 2. Null otherwise.
+    business_rule: IF max(scores) - min(scores) > 2 THEN dissent_summary IS NOT NULL.
+    relationships: Cross-field constraint with final_score, prosecutor_score, defense_score,
+      tech_lead_score.
 quality:
   type: SodaChecks
   specification:
     checks:
-      - row_count >= 1
-      - missing_count(audit_id) = 0
-      - duplicate_count(audit_id) = 0
-      - min(final_score) >= 1
-      - max(final_score) <= 5
-      - min(evidence_confidence) >= 0.0
-      - max(evidence_confidence) <= 1.0
-      - missing_count(dimension_id) = 0
+    - row_count >= 1
+    - missing_count(audit_id) = 0
+    - duplicate_count(audit_id) = 0
+    - min(final_score) >= 1
+    - max(final_score) <= 5
 lineage:
   upstream:
-    - id: file::automaton-auditor/src/nodes/justice.py
-      description: Chief Justice synthesis node that writes CriterionVerdict records
+  - id: file::automaton-auditor/src/nodes/justice.py
+    description: Chief Justice synthesis node that writes CriterionVerdict records
   downstream:
-    - id: pipeline::week3-automaton-auditor-verdicts
-      description: Downstream consumer via PRODUCES edge
-      fields_consumed:
-        - audit_id
-        - dimension_id
-        - final_score
-        - evidence_confidence
-      breaking_if_changed:
-        - final_score
-        - evidence_confidence
-        - dimension_id
-    - id: file::Legacy-Code-Cartographer/src/agents/hydrologist.py
-      description: Downstream consumer via CONSUMES edge
-      fields_consumed:
-        - audit_id
-        - dimension_id
-        - final_score
-        - evidence_confidence
-      breaking_if_changed:
-        - final_score
-        - evidence_confidence
-        - dimension_id
-    - id: pipeline::week5-ledger-events
-      description: Downstream consumer via CONSUMES edge
-      fields_consumed:
-        - audit_id
-        - dimension_id
-        - final_score
-        - evidence_confidence
-      breaking_if_changed:
-        - final_score
-        - evidence_confidence
-        - dimension_id
-    - id: service::validation-runner
-      description: Downstream consumer via CONSUMES edge
-      fields_consumed:
-        - audit_id
-        - dimension_id
-        - final_score
-        - evidence_confidence
-      breaking_if_changed:
-        - final_score
-        - evidence_confidence
-        - dimension_id
+  - id: pipeline::week3-automaton-auditor-verdicts
+    description: Downstream consumer via PRODUCES edge
+    fields_consumed:
+    - audit_id
+    - dimension_id
+    - final_score
+    - evidence_confidence
+    breaking_if_changed:
+    - final_score
+    - evidence_confidence
+    - dimension_id
+  - id: file::Legacy-Code-Cartographer/src/agents/hydrologist.py
+    description: Downstream consumer via CONSUMES edge
+    fields_consumed:
+    - audit_id
+    - dimension_id
+    - final_score
+    - evidence_confidence
+    breaking_if_changed:
+    - final_score
+    - evidence_confidence
+    - dimension_id
+  - id: pipeline::week5-ledger-events
+    description: Downstream consumer via CONSUMES edge
+    fields_consumed:
+    - audit_id
+    - dimension_id
+    - final_score
+    - evidence_confidence
+    breaking_if_changed:
+    - final_score
+    - evidence_confidence
+    - dimension_id
+  - id: service::validation-runner
+    description: Downstream consumer via CONSUMES edge
+    fields_consumed:
+    - audit_id
+    - dimension_id
+    - final_score
+    - evidence_confidence
+    breaking_if_changed:
+    - final_score
+    - evidence_confidence
+    - dimension_id

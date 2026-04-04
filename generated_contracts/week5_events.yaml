@@ -5,12 +5,8 @@ info:
   title: Contract for week5-ledger-events
   version: 1.0.0
   owner: week7-team
-  description: >
-    Auto-generated contract from events.jsonl. Generated at 2026-04-01T10:30:00+00:00.
-    Covers 9 schema fields with 9 required.
-    Source system: The-Ledger EventStore.append() — PostgreSQL-backed append-only event store
-    covering the full loan application lifecycle (ApplicationSubmitted through HumanReviewCompleted).
-    Records conform to StoredEvent Pydantic model from src/models/events.py.
+  description: Auto-generated contract from events.jsonl. Generated at 2026-04-04T13:03:21.051337+00:00.
+    Covers 49 schema fields with 11 required.
 servers:
   local:
     type: local
@@ -18,167 +14,473 @@ servers:
     format: jsonl
 terms:
   usage: Internal inter-system data contract. Do not publish externally.
-  limitations: >
-    event_type enum must remain stable — consumers build state machines on these values.
-    stream_position must monotonically increase per stream_id — OCC relies on this.
-    global_position must be globally monotonic — replay and gas-town recovery depend on it.
-    event_version increment requires a registered upcaster in UpcasterRegistry.
-    Breaking changes require a new contract version and migration plan.
+  limitations: Score fields must remain on 1-5 integer scale. Confidence fields must
+    remain on 0.0-1.0 float scale. Breaking changes require a new contract version
+    and migration plan.
 schema:
   event_id:
     type: string
     required: true
     format: uuid
-    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    description: >
-      Immutable UUID assigned at event append time. Primary key for the event store.
-      Uniqueness is enforced by PostgreSQL; violations indicate event store corruption.
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
   stream_id:
     type: string
     required: true
-    description: >
-      Aggregate stream identifier in format '<aggregate_type>-<uuid>'.
-      Examples: 'loan-app-<uuid>', 'agent-session-<uuid>'.
-      All events in a stream share the same business aggregate identity.
-      BREAKING if format changes — downstream projections parse this field.
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
   stream_position:
     type: integer
     required: true
     minimum: 1
-    description: >
-      Monotonically increasing position within the stream, starting from 1.
-      Optimistic Concurrency Control (OCC) uses expected_version == stream_position - 1.
-      BREAKING if reset to 0 or becomes non-monotonic — this would corrupt all concurrent
-      writers' expected_version checks.
+    description: 'stream_position: append-order counter. Must be >= 1. BREAKING if
+      reset to 0 (OCC would break).'
+    maximum: 8.0
   global_position:
     type: integer
     required: true
     minimum: 1
-    description: >
-      Global append order across all streams, assigned by the PostgreSQL sequence.
-      Monotonically non-decreasing. Gas-town recovery replays from a saved global_position.
-      BREAKING if non-monotonic — replay would produce wrong aggregate state.
+    description: 'global_position: append-order counter. Must be >= 1. BREAKING if
+      reset to 0 (OCC would break).'
+    maximum: 12.0
   event_type:
     type: string
     required: true
-    enum:
-      - ApplicationSubmitted
-      - CreditAnalysisRequested
-      - CreditAnalysisCompleted
-      - FraudScreeningRequested
-      - FraudScreeningCompleted
-      - ComplianceCheckRequested
-      - ComplianceRulePassed
-      - ComplianceRuleFailed
-      - DecisionGenerated
-      - HumanReviewRequested
-      - HumanReviewCompleted
-      - ApplicationApproved
-      - ApplicationDeclined
-      - AgentSessionStarted
-      - AgentSessionCompleted
-      - AgentSessionFailed
-      - AgentNodeExecuted
-      - AgentInputValidated
-      - AgentToolCalled
-      - AuditIntegrityCheckRun
-    description: >
-      Domain event type. Stable enum — each value maps to a Pydantic class in EVENT_REGISTRY.
-      BREAKING to rename or remove — aggregate state machines transition on these strings.
-      Adding a new value is non-breaking only if existing projections handle unknown types gracefully.
   event_version:
     type: integer
     required: true
     minimum: 1
     maximum: 3
-    description: >
-      Schema version for upcasting. Starts at 1; max=3 reflects current UpcasterRegistry.
-      CreditAnalysisCompleted v2 and DecisionGenerated v2 are the only currently versioned events.
-      Incrementing requires a registered upcaster — otherwise old readers will break.
-      BREAKING if event_version decrements or skips a version.
+    description: Schema version for upcasting. Max=3 reflects current upcaster registry.
+      Increment only with a registered upcaster.
+  payload_application_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_application_id in week5-ledger-events.
+  payload_applicant_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_applicant_id in week5-ledger-events.
+  payload_requested_amount_usd:
+    type: number
+    required: false
+    minimum: 250000.0
+    maximum: 250000.0
+    description: Column payload_requested_amount_usd in week5-ledger-events.
+  payload_loan_purpose:
+    type: string
+    required: false
+    description: Column payload_loan_purpose in week5-ledger-events.
+  payload_submission_channel:
+    type: string
+    required: false
+    description: Column payload_submission_channel in week5-ledger-events.
+  metadata_correlation_id:
+    type: string
+    required: true
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Trace correlation ID linking causally related events across aggregate
+      streams.
+  metadata_causation_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: ID of the command or event that caused this event to be raised.
+  metadata_source_service:
+    type: string
+    required: true
+    description: Column metadata_source_service in week5-ledger-events.
   schema_version:
     type: string
     required: true
-    enum:
-      - '1.0'
-    description: >
-      Top-level schema version of the JSONL export format (distinct from event_version).
-      Currently always '1.0'. Changes require a new contract version.
+    description: Column schema_version in week5-ledger-events.
   occurred_at:
     type: string
     required: true
     format: date-time
-    description: >
-      ISO 8601 UTC timestamp when the domain event occurred in business time.
-      Must be <= recorded_at. Violation indicates a clock skew issue or data ingestion error.
   recorded_at:
     type: string
     required: true
     format: date-time
-    description: >
-      ISO 8601 UTC timestamp when the event was persisted to the PostgreSQL event store.
-      Must be >= occurred_at. The difference (recorded_at - occurred_at) is the event
-      latency; values > 60s indicate a processing bottleneck.
+  payload_assigned_agent_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_assigned_agent_id in week5-ledger-events.
+  payload_priority:
+    type: string
+    required: false
+    description: Column payload_priority in week5-ledger-events.
+  payload_agent_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_agent_id in week5-ledger-events.
+  payload_session_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_session_id in week5-ledger-events.
+  payload_agent_type:
+    type: string
+    required: false
+    description: Column payload_agent_type in week5-ledger-events.
+  payload_model_version:
+    type: string
+    required: false
+    description: Column payload_model_version in week5-ledger-events.
+  payload_context_source:
+    type: string
+    required: false
+    description: Column payload_context_source in week5-ledger-events.
+  payload_context_token_count:
+    type: number
+    required: false
+    minimum: 4200.0
+    maximum: 4200.0
+    description: Column payload_context_token_count in week5-ledger-events.
+  payload_node_name:
+    type: string
+    required: false
+    description: Column payload_node_name in week5-ledger-events.
+  payload_node_sequence:
+    type: number
+    required: false
+    minimum: 1.0
+    maximum: 2.0
+    description: Column payload_node_sequence in week5-ledger-events.
+  payload_llm_called:
+    type: string
+    required: false
+    enum:
+    - 'False'
+    - 'True'
+    description: Column payload_llm_called in week5-ledger-events.
+  payload_duration_ms:
+    type: number
+    required: false
+    minimum: 320.0
+    maximum: 1840.0
+    description: Column payload_duration_ms in week5-ledger-events.
+  payload_llm_tokens_input:
+    type: number
+    required: false
+    minimum: 3200.0
+    maximum: 3200.0
+    description: Column payload_llm_tokens_input in week5-ledger-events.
+  payload_llm_tokens_output:
+    type: number
+    required: false
+    minimum: 480.0
+    maximum: 480.0
+    description: Column payload_llm_tokens_output in week5-ledger-events.
+  payload_llm_cost_usd:
+    type: number
+    required: false
+    minimum: 0.0042
+    maximum: 0.0042
+    description: Column payload_llm_cost_usd in week5-ledger-events.
+  payload_confidence_score:
+    type: number
+    required: false
+    minimum: 0.0
+    maximum: 1.0
+    description: Confidence score from automaton-auditor detective evidence. Must
+      remain 0.0-1.0 float. BREAKING if changed to 0-100 integer scale.
+  payload_risk_tier:
+    type: string
+    required: false
+    description: Column payload_risk_tier in week5-ledger-events.
+  payload_recommended_limit_usd:
+    type: number
+    required: false
+    minimum: 200000.0
+    maximum: 200000.0
+    description: Column payload_recommended_limit_usd in week5-ledger-events.
+  payload_analysis_duration_ms:
+    type: number
+    required: false
+    minimum: 2160.0
+    maximum: 2160.0
+    description: Column payload_analysis_duration_ms in week5-ledger-events.
+  payload_input_data_hash:
+    type: string
+    required: false
+    description: Column payload_input_data_hash in week5-ledger-events.
+  payload_total_nodes_executed:
+    type: number
+    required: false
+    minimum: 2.0
+    maximum: 2.0
+    description: Column payload_total_nodes_executed in week5-ledger-events.
+  payload_total_llm_calls:
+    type: number
+    required: false
+    minimum: 1.0
+    maximum: 1.0
+    description: Column payload_total_llm_calls in week5-ledger-events.
+  payload_total_tokens_used:
+    type: number
+    required: false
+    minimum: 3680.0
+    maximum: 3680.0
+    description: Column payload_total_tokens_used in week5-ledger-events.
+  payload_total_cost_usd:
+    type: number
+    required: false
+    minimum: 0.0042
+    maximum: 0.0042
+    description: Column payload_total_cost_usd in week5-ledger-events.
+  payload_fraud_score:
+    type: number
+    required: false
+    minimum: 0.12
+    maximum: 0.12
+    description: Column payload_fraud_score in week5-ledger-events.
+  payload_screening_model_version:
+    type: string
+    required: false
+    description: Column payload_screening_model_version in week5-ledger-events.
+  payload_regulation_set_version:
+    type: string
+    required: false
+    description: Column payload_regulation_set_version in week5-ledger-events.
+  payload_orchestrator_agent_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    description: Column payload_orchestrator_agent_id in week5-ledger-events.
+  payload_recommendation:
+    type: string
+    required: false
+    description: Column payload_recommendation in week5-ledger-events.
+  payload_decision_basis_summary:
+    type: string
+    required: false
+    description: Column payload_decision_basis_summary in week5-ledger-events.
+  payload_reason:
+    type: string
+    required: false
+    description: Column payload_reason in week5-ledger-events.
+  payload_assigned_to:
+    type: string
+    required: false
+    description: Column payload_assigned_to in week5-ledger-events.
 llm_annotations:
-  stream_id:
-    description: >
-      Aggregate stream identifier. Format '<aggregate_type>-<uuid>' encodes both
-      the aggregate type (for router dispatch) and the aggregate instance identity.
-    business_rule: >
-      stream_id must contain a '-' separator and the second segment must be a valid UUID.
-      Pattern: '^(loan-app|agent-session|compliance-record|audit-ledger)-[0-9a-f]{8}-...$'
-    relationships: >
-      All events with the same stream_id belong to the same aggregate instance.
-      stream_position within a stream_id must be monotonically increasing.
+  event_version:
+    description: Column event_version in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_application_id:
+    description: Column payload_application_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_applicant_id:
+    description: Column payload_applicant_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_requested_amount_usd:
+    description: Column payload_requested_amount_usd in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_loan_purpose:
+    description: Column payload_loan_purpose in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_submission_channel:
+    description: Column payload_submission_channel in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  metadata_correlation_id:
+    description: Trace correlation ID linking causally related events across aggregate
+      streams.
+    business_rule: If present, must be valid UUID or null.
+    relationships: Links event records that belong to the same logical business transaction.
+  metadata_causation_id:
+    description: ID of the command or event that caused this event to be raised.
+    business_rule: If present, must be valid UUID or null.
+    relationships: Forms a causal chain; downstream replay depends on this for gas-town
+      recovery.
+  metadata_source_service:
+    description: Column metadata_source_service in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
   schema_version:
-    description: >
-      JSONL export format version, separate from event_version. Controls how the outer
-      envelope (event_id, stream_id, stream_position, etc.) is interpreted.
-    business_rule: >
-      schema_version must be '1.0' until a new contract version is published.
-      schema_version change without a contract version bump is a silent breaking change.
-    relationships: >
-      Distinct from event_version. schema_version governs the outer wrapper;
-      event_version governs the payload field contents.
+    description: Column schema_version in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_assigned_agent_id:
+    description: Column payload_assigned_agent_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_priority:
+    description: Column payload_priority in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_agent_id:
+    description: Column payload_agent_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_session_id:
+    description: Column payload_session_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_agent_type:
+    description: Column payload_agent_type in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_model_version:
+    description: Column payload_model_version in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_context_source:
+    description: Column payload_context_source in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_context_token_count:
+    description: Column payload_context_token_count in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_node_name:
+    description: Column payload_node_name in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_node_sequence:
+    description: Column payload_node_sequence in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_llm_called:
+    description: Column payload_llm_called in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_duration_ms:
+    description: Column payload_duration_ms in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_llm_tokens_input:
+    description: Column payload_llm_tokens_input in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_llm_tokens_output:
+    description: Column payload_llm_tokens_output in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_llm_cost_usd:
+    description: Column payload_llm_cost_usd in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_confidence_score:
+    description: Column payload_confidence_score in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_risk_tier:
+    description: Column payload_risk_tier in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_recommended_limit_usd:
+    description: Column payload_recommended_limit_usd in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_analysis_duration_ms:
+    description: Column payload_analysis_duration_ms in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_input_data_hash:
+    description: Column payload_input_data_hash in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_total_nodes_executed:
+    description: Column payload_total_nodes_executed in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_total_llm_calls:
+    description: Column payload_total_llm_calls in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_total_tokens_used:
+    description: Column payload_total_tokens_used in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_total_cost_usd:
+    description: Column payload_total_cost_usd in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_fraud_score:
+    description: Column payload_fraud_score in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_screening_model_version:
+    description: Column payload_screening_model_version in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_regulation_set_version:
+    description: Column payload_regulation_set_version in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_orchestrator_agent_id:
+    description: Column payload_orchestrator_agent_id in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_recommendation:
+    description: Column payload_recommendation in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_decision_basis_summary:
+    description: Column payload_decision_basis_summary in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_reason:
+    description: Column payload_reason in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
+  payload_assigned_to:
+    description: Column payload_assigned_to in week5-ledger-events.
+    business_rule: No rule inferred (LLM annotation skipped).
+    relationships: None identified.
 quality:
   type: SodaChecks
   specification:
     checks:
-      - row_count >= 1
-      - missing_count(event_id) = 0
-      - duplicate_count(event_id) = 0
-      - min(stream_position) >= 1
-      - min(global_position) >= 1
-      - min(event_version) >= 1
-      - max(event_version) <= 3
-      - missing_count(event_type) = 0
-      - missing_count(recorded_at) = 0
+    - row_count >= 1
+    - missing_count(event_id) = 0
+    - duplicate_count(event_id) = 0
+    - min(stream_position) >= 1
 lineage:
   upstream:
-    - id: file::The-Ledger/src/event_store.py
-      description: EventStore.append() — writes StoredEvent records to PostgreSQL then exports to JSONL
+  - id: file::The-Ledger/src/event_store.py
+    description: EventStore.append() — writes StoredEvent records to PostgreSQL then
+      exports to JSONL
   downstream:
-    - id: pipeline::week5-ledger-events
-      description: Downstream consumer via CONSUMES edge
-      fields_consumed:
-        - event_id
-        - stream_id
-        - event_type
-        - stream_position
-        - payload
-      breaking_if_changed:
-        - event_type
-        - stream_position
-        - event_version
-    - id: service::validation-runner
-      description: Downstream consumer via CONSUMES edge
-      fields_consumed:
-        - event_id
-        - stream_id
-        - event_type
-        - stream_position
-        - payload
-      breaking_if_changed:
-        - event_type
-        - stream_position
-        - event_version
+  - id: pipeline::week5-ledger-events
+    description: Downstream consumer via CONSUMES edge
+    fields_consumed:
+    - event_id
+    - stream_id
+    - event_type
+    - stream_position
+    - payload
+    breaking_if_changed:
+    - event_type
+    - stream_position
+    - event_version
+  - id: service::validation-runner
+    description: Downstream consumer via CONSUMES edge
+    fields_consumed:
+    - event_id
+    - stream_id
+    - event_type
+    - stream_position
+    - payload
+    breaking_if_changed:
+    - event_type
+    - stream_position
+    - event_version

@@ -111,17 +111,18 @@ def profile_column(series: pd.Series, col_name: str) -> ColumnProfile:
         cardinality_estimate=int(normalized.nunique()),
         sample_values=[str(v) for v in normalized.unique()[:5]],
     )
-    if pd.api.types.is_numeric_dtype(series):
+    if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
+        numeric = series.dropna().astype(float)
         profile.stats = {
-            "min":    float(series.min()),
-            "max":    float(series.max()),
-            "mean":   float(series.mean()),
-            "p25":    float(series.quantile(0.25)),
-            "p50":    float(series.quantile(0.50)),
-            "p75":    float(series.quantile(0.75)),
-            "p95":    float(series.quantile(0.95)),
-            "p99":    float(series.quantile(0.99)),
-            "stddev": float(series.std()),
+            "min":    float(numeric.min()),
+            "max":    float(numeric.max()),
+            "mean":   float(numeric.mean()),
+            "p25":    float(numeric.quantile(0.25)),
+            "p50":    float(numeric.quantile(0.50)),
+            "p75":    float(numeric.quantile(0.75)),
+            "p95":    float(numeric.quantile(0.95)),
+            "p99":    float(numeric.quantile(0.99)),
+            "stddev": float(numeric.std()) if len(numeric) > 1 else 0.0,
         }
     return profile
 
@@ -577,6 +578,30 @@ def main():
     snapshot_path = snapshot_dir / f"{ts}.yaml"
     shutil.copy(yaml_path, snapshot_path)
     print(f"      Snapshot: {snapshot_path}")
+
+    # Write statistical baseline (mean, stddev per numeric column)
+    baselines_path = Path("schema_snapshots") / "baselines.json"
+    baselines = {
+        "written_at": datetime.now(timezone.utc).isoformat(),
+        "contract_id": args.contract_id,
+        "columns": {},
+    }
+    for col in df.select_dtypes(include="number").columns:
+        mean_val = float(df[col].mean())
+        std_val = float(df[col].std()) if len(df[col]) > 1 else 0.0
+        baselines["columns"][col] = {
+            "mean": mean_val,
+            "stddev": std_val,
+            "min": float(df[col].min()),
+            "max": float(df[col].max()),
+        }
+        # Flag suspicious distributions for confidence-like fields only
+        if ("confidence" in col.lower()) and (mean_val > 0.99 or mean_val < 0.01):
+            print(f"      WARNING: {col} mean={mean_val:.4f} — suspicious distribution "
+                  f"(possibly clamped or broken)")
+    with open(baselines_path, "w") as f:
+        json.dump(baselines, f, indent=2)
+    print(f"      Baselines: {baselines_path}")
 
     print("[4/4] Done.")
     print(f"\nSummary:")

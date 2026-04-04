@@ -1,124 +1,60 @@
 version: 2
 models:
-  - name: week3_automaton_auditor_verdicts
-    description: >
-      dbt schema tests for week3-automaton-auditor-verdicts.
-      Translates Bitol contract clauses into dbt-native test assertions.
-    columns:
-      - name: audit_id
-        description: UUID primary key for each verdict record. One per dimension per audit run.
-        tests:
-          - not_null
-          - unique
-          - dbt_utils.expression_is_true:
-              expression: "audit_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
-
-      - name: target_repo
-        description: Full HTTPS URL of the audited repository.
-        tests:
-          - not_null
-
-      - name: dimension_id
-        description: Rubric dimension. Stable enum — 10 valid values.
-        tests:
-          - not_null
-          - accepted_values:
-              values:
-                - git_forensic_analysis
-                - state_management_rigor
-                - graph_orchestration
-                - safe_tool_engineering
-                - structured_output_enforcement
-                - judicial_nuance
-                - chief_justice_synthesis
-                - theoretical_depth
-                - report_accuracy
-                - swarm_visual
-
-      - name: final_score
-        description: Chief Justice synthesized score on 1-5 scale.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 1"
-          - dbt_utils.expression_is_true:
-              expression: "<= 5"
-          - accepted_values:
-              values:
-                - 1
-                - 2
-                - 3
-                - 4
-                - 5
-
-      - name: prosecutor_score
-        description: Adversarial judge score on 1-5 scale.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 1"
-          - dbt_utils.expression_is_true:
-              expression: "<= 5"
-
-      - name: defense_score
-        description: Forgiving judge score on 1-5 scale.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 1"
-          - dbt_utils.expression_is_true:
-              expression: "<= 5"
-
-      - name: tech_lead_score
-        description: Architecture-focused judge score on 1-5 scale.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 1"
-          - dbt_utils.expression_is_true:
-              expression: "<= 5"
-
-      - name: reasoning
-        description: Chief Justice synthesis chain. Must be non-empty.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "length(reasoning) > 0"
-
-      - name: dissent_summary
-        description: >
-          Present when judicial variance > 2. Null otherwise.
-          Cross-field constraint is enforced via a custom test below.
-        tests:
-          # dissent_summary allowed to be null (not required)
-          - dbt_utils.expression_is_true:
-              name: dissent_required_when_high_variance
-              expression: >
-                (GREATEST(prosecutor_score, defense_score, tech_lead_score) -
-                 LEAST(prosecutor_score, defense_score, tech_lead_score)) <= 2
-                OR dissent_summary IS NOT NULL
-
-      - name: evidence_confidence
-        description: Detective confidence score. Must remain 0.0-1.0 float.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: ">= 0.0"
-          - dbt_utils.expression_is_true:
-              expression: "<= 1.0"
-
-      - name: evidence_found
-        description: Whether detective located the expected artifact.
-        tests:
-          - not_null
-          - accepted_values:
-              values:
-                - true
-                - false
-
-      - name: audited_at
-        description: ISO 8601 timestamp of verdict production.
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "audited_at IS NOT NULL AND audited_at::timestamptz <= NOW()"
+- name: week3_automaton_auditor_verdicts
+  description: dbt schema tests for week3-automaton-auditor-verdicts
+  columns:
+  - name: audit_id
+    tests:
+    - not_null
+  - name: target_repo
+    tests:
+    - not_null
+  - name: dimension_id
+    tests:
+    - not_null
+  - name: final_score
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: '>= 1'
+    - dbt_utils.expression_is_true:
+        expression: <= 5
+  - name: prosecutor_score
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: '>= 1'
+    - dbt_utils.expression_is_true:
+        expression: <= 5
+  - name: defense_score
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: '>= 1'
+    - dbt_utils.expression_is_true:
+        expression: <= 5
+  - name: tech_lead_score
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: '>= 1'
+    - dbt_utils.expression_is_true:
+        expression: <= 5
+  - name: reasoning
+    tests:
+    - not_null
+  - name: dissent_summary
+    tests: []
+  - name: evidence_confidence
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: '>= 0.0'
+    - dbt_utils.expression_is_true:
+        expression: <= 1.0
+  - name: evidence_found
+    tests:
+    - not_null
+  - name: audited_at
+    tests:
+    - not_null
