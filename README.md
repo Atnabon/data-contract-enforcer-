@@ -1,187 +1,147 @@
 
 # Data Contract Enforcer
 
-A system for generating, validating, and enforcing machine-checkable data contracts across inter-system boundaries in the TRP1 (Training Round Progression 1) program.
+A system for generating, validating, and enforcing machine-checkable data contracts across inter-system boundaries in the TRP1 program. Traces violations to their origin via blame chain attribution, detects schema evolution breaking changes, monitors AI-specific metrics, and produces auto-generated enforcer reports.
 
-## Overview
-
-Multiple AI/ML systems built across TRP1 weeks produce structured data outputs without explicit contracts governing their schemas, ranges, and cross-system dependencies. This tool makes those implicit contracts **explicit and machine-checkable** using [Bitol v3.0.0](https://bitol-io.github.io/open-data-contract-standard/) data contracts, enabling early detection of schema drift and data integrity violations across system boundaries.
-
-**Covered boundaries:**
-
-| Source System | Target System | Contract |
-|---|---|---|
-| automaton-auditor (Week 3) | Downstream consumers | `generated_contracts/week3_verdicts.yaml` |
-| The-Ledger (Week 5) | Downstream consumers | `generated_contracts/week5_events.yaml` |
-
-## Architecture
-
-```
-outputs/week{3,5}/*.jsonl          # Raw JSONL data from TRP1 systems
-         │
-         ▼
-contracts/generator.py             # 4-stage contract generation pipeline
-    Stage 1: Load & Flatten        # Normalize nested JSONL payloads
-    Stage 2: Column Profiling      # Types, nullability, stats, cardinality
-    Stage 3: Bitol Clause Gen      # Domain rules → Bitol contract clauses
-    Stage 4: Lineage + LLM + dbt   # Inject lineage, annotate, emit dbt schema
-         │
-         ▼
-generated_contracts/*.yaml         # Bitol v3.0.0 contracts
-generated_contracts/*_dbt.yml      # dbt-compatible schema files
-schema_snapshots/                  # Timestamped immutable contract history
-         │
-         ▼
-contracts/runner.py                # Contract validation runner
-         │
-         ▼
-validation_reports/*.json          # Validation results (CI/CD gate-compatible)
-```
-
-## Quickstart
-
-### Prerequisites
-
-- Python 3.11+
-- An `ANTHROPIC_API_KEY` for LLM annotation (optional — falls back to placeholder annotations)
-
-### Install
+## Quick Start
 
 ```bash
-# Clone and install
+# Install
 pip install -e .
 
-# Or with uv
-uv sync
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-```
-
-### Generate Contracts
-
-```bash
-# Week 3 — automaton-auditor verdict records
-python contracts/generator.py \
+# Step 1: Generate contracts
+python -m contracts.generator \
   --source outputs/week3/verdicts.jsonl \
   --contract-id week3-automaton-auditor-verdicts \
   --lineage outputs/week4/lineage_snapshots.jsonl \
   --output generated_contracts/
+# Expected: generated_contracts/week3_verdicts.yaml (12 clauses), baselines written
 
-# Week 5 — The-Ledger event records
-python contracts/generator.py \
-  --source outputs/week5/events.jsonl \
-  --contract-id week5-ledger-events \
-  --lineage outputs/week4/lineage_snapshots.jsonl \
-  --output generated_contracts/
-```
-
-### Validate Data Against Contracts
-
-```bash
-# Week 3
-python contracts/runner.py \
+# Step 2: Validate clean data (baseline)
+python -m contracts.runner \
   --source outputs/week3/verdicts.jsonl \
   --contract generated_contracts/week3_verdicts.yaml \
-  --output validation_reports/
+  --mode AUDIT
+# Expected: ALL PASS
 
-# Week 5
-python contracts/runner.py \
-  --source outputs/week5/events.jsonl \
-  --contract generated_contracts/week5_events.yaml \
-  --output validation_reports/
+# Step 3: Validate violated data (detects failures)
+python -m contracts.runner \
+  --source outputs/week3/verdicts_violated.jsonl \
+  --contract generated_contracts/week3_verdicts.yaml \
+  --mode ENFORCE
+# Expected: 3 FAIL (confidence range, statistical drift, dimension_id format)
+
+# Step 4: Attribute violations (blame chain + blast radius)
+python -m contracts.attributor \
+  --violation validation_reports/<latest_violated_report>.json \
+  --lineage outputs/week4/lineage_snapshots.jsonl \
+  --registry contract_registry/subscriptions.yaml
+# Expected: 3 violations with blame chain, commit hash, 3 affected subscribers
+
+# Step 5: Analyze schema evolution
+python -m contracts.schema_analyzer \
+  --contract-id week3-automaton-auditor-verdicts
+# Expected: 1 BREAKING change (narrow_type: number -> integer)
+
+# Step 6: Run AI extensions
+python -m contracts.ai_extensions \
+  --extractions outputs/week3/verdicts.jsonl \
+  --verdicts outputs/week3/verdicts.jsonl
+# Expected: Embedding drift PASS, Prompt validation PASS, Output violation rate PASS
+
+# Step 7: Generate enforcer report
+python -m contracts.report_generator
+# Expected: enforcer_report/report_data.json with health score 0-100
 ```
 
-The runner exits with code `1` if any check fails — suitable for use as a CI/CD gate.
+## Architecture
+
+```
+outputs/week{3,5}/*.jsonl           # Raw JSONL from TRP1 systems
+         │
+         ▼
+contracts/generator.py              # 4-stage contract generation
+    Stage 1: Load & Flatten         # Normalize nested JSONL payloads
+    Stage 2: Column Profiling       # Types, nullability, stats, cardinality
+    Stage 3: Bitol Clause Gen       # Domain rules → Bitol clauses
+    Stage 4: Lineage + LLM + dbt   # Inject lineage, annotate, dbt schema
+         │
+         ▼
+generated_contracts/*.yaml          # Bitol v3.0.0 contracts
+schema_snapshots/baselines.json     # Statistical baselines (mean, stddev)
+         │
+         ▼
+contracts/runner.py                 # ValidationRunner (--mode AUDIT|WARN|ENFORCE)
+    12 check types                  # type, required, uuid, datetime, enum,
+    + statistical drift             # min, max, uniqueness, monotonic, temporal,
+    + 3 enforcement modes           # score_consistency, statistical_drift
+         │
+         ▼
+validation_reports/*.json           # Structured validation reports
+         │
+         ▼
+contracts/attributor.py             # ViolationAttributor
+    1. Registry blast radius        # Primary: contract_registry/subscriptions.yaml
+    2. Lineage transitive depth     # Enrichment: outputs/week4/lineage_snapshots.jsonl
+    3. Git blame + scoring          # Confidence = 1.0 - (days*0.1) - (hops*0.2)
+    4. Violation log                # violation_log/violations.jsonl
+         │
+         ▼
+contracts/schema_analyzer.py        # SchemaEvolutionAnalyzer
+    Snapshot diffing                # Compare consecutive timestamped snapshots
+    Taxonomy classification         # Breaking vs compatible (7 breaking, 5 compatible types)
+    Migration report                # Rollback plan + per-consumer failure modes
+         │
+         ▼
+contracts/ai_extensions.py          # AI Contract Extensions
+    1. Embedding drift              # Cosine distance from baseline centroid
+    2. Prompt input validation      # JSON Schema enforcement + quarantine
+    3. Output violation rate        # Trend tracking + violation log writes
+         │
+         ▼
+contracts/report_generator.py       # Enforcer Report
+    1. Data Health Score            # (passed/total)*100 - 20*CRITICAL
+    2. Violations this week         # By severity, plain language
+    3. Schema changes               # From evolution analyzer
+    4. AI system risk               # From AI extensions
+    5. Recommended actions          # Specific file + clause references
+```
 
 ## Project Structure
 
 ```
 data-contract-enforcer/
 ├── contracts/
-│   ├── models.py              # Shared dataclasses (ColumnProfile, ValidationResult, etc.)
-│   ├── generator.py           # Contract generation pipeline (594 lines)
-│   └── runner.py              # Contract validation runner (790 lines)
-├── generated_contracts/       # Output Bitol YAML contracts and dbt schemas
-├── schema_snapshots/          # Timestamped contract history per contract-id
-├── outputs/
-│   ├── week3/verdicts.jsonl   # automaton-auditor verdict records
-│   ├── week4/lineage_snapshots.jsonl  # Legacy-Code-Cartographer lineage graph
-│   └── week5/events.jsonl     # The-Ledger event records
-├── validation_reports/        # JSON validation run results
-├── pyproject.toml
-└── .env.example
+│   ├── generator.py          # ContractGenerator (4-stage pipeline)
+│   ├── runner.py             # ValidationRunner (12 checks + drift + modes)
+│   ├── attributor.py         # ViolationAttributor (registry + lineage + git)
+│   ├── schema_analyzer.py    # SchemaEvolutionAnalyzer (diff + taxonomy)
+│   ├── ai_extensions.py      # AI Extensions (drift, validation, rate)
+│   ├── report_generator.py   # ReportGenerator (5-section report)
+│   └── models.py             # Shared dataclasses
+├── contract_registry/
+│   └── subscriptions.yaml    # 6 inter-system dependency subscriptions
+├── generated_contracts/      # Output Bitol YAML + dbt schema.yml
+├── schema_snapshots/         # Timestamped snapshots + baselines
+├── validation_reports/       # JSON validation reports
+├── violation_log/            # JSONL violation records
+├── enforcer_report/          # Auto-generated report
+├── outputs/                  # Input JSONL from TRP1 weeks 3, 4, 5
+└── interim_report.md         # Final submission report
 ```
 
-## Contract Generation Pipeline
+## Contract Registry
 
-The generator runs four stages:
+The `contract_registry/subscriptions.yaml` file records 6 subscriptions covering all inter-system dependencies. The registry is the **primary source for blast radius** — not the lineage graph. This is the architecture that scales to Tier 2 (multi-team) and Tier 3 (cross-company).
 
-1. **Load & Flatten** — Reads JSONL, flattens nested dicts (`payload.*`, `metadata.*`) with prefixed keys. List columns are dropped (too variable to profile).
-
-2. **Column Profiling** — Computes null fraction, cardinality, sample values, and numeric statistics (min, max, mean, percentiles at 25/50/75/95/99, stddev) per column.
-
-3. **Bitol Clause Generation** — Maps profiles to contract clauses using domain rules:
-   - `confidence`/`score` fields → `0.0–1.0` range with `BREAKING` severity
-   - `judicial_score` fields → `1–5` integer bounds
-   - `position` fields → `>= 1` (ordering invariants)
-   - UUID fields → `format: uuid` with pattern validation
-   - Timestamps → ISO 8601 `date-time` format
-   - Low-cardinality strings → `enum` enforcement
-
-4. **Lineage + LLM + dbt** — Three parallel enrichments:
-   - **Lineage injection**: Reads the Week 4 Cartographer snapshot and injects downstream consumers + breaking fields
-   - **LLM annotation**: Calls Claude to describe ambiguous columns (e.g., `reasoning`, `dissent_summary`, `hash`). Gated on ambiguity — deterministic columns are not sent to the LLM
-   - **dbt schema**: Emits `schema.yml` with `not_null`, `accepted_values`, and `expression_is_true` tests
-
-## Validation Checks
-
-The runner implements the following checks:
-
-| Check | Type | Description |
-|---|---|---|
-| `row_count` | dataset | At least 1 record present |
-| `required` | column | No null values in required fields |
-| `type` | column | Values match declared type (string, integer, number, boolean) |
-| `format_uuid` | column | UUID v4 format validation |
-| `format_datetime` | column | ISO 8601 datetime format (4 variant support) |
-| `enum` | column | Values within declared allowed set |
-| `minimum` / `maximum` | column | Numeric bounds |
-| `uniqueness` | column | ID fields have no duplicates |
-| `monotonic` | cross-field | `global_position` increases globally; `stream_position` increases per `stream_id` |
-| `score_consistency` | cross-field | `final_score` within range of component scores; flags missing `dissent_summary` on high variance |
-| `temporal_ordering` | cross-field | `occurred_at <= recorded_at` (no clock skew) |
-
-## Validation Results
-
-Latest validation runs against TRP1 data:
-
-| Contract | Checks | Pass | Fail | Warn |
-|---|---|---|---|---|
-| `week3_verdicts` | 39 | 39 | 0 | 0 |
-| `week5_events` | 32 | 32 | 0 | 0 |
-
-## Key Design Decisions
-
-- **LLM is gated on ambiguity** — only columns with non-obvious names are sent to Claude; deterministic rules handle the rest. This keeps contracts reproducible and cheap to regenerate.
-- **Run-all checks, exit on FAIL** — all checks run in a single pass; exit code 1 if any FAIL exists. WARNs are informational and require human review.
-- **Dual snapshot strategy** — a stable named file (`week3_verdicts.yaml`) tracks the current contract; timestamped snapshots in `schema_snapshots/` track data-driven schema evolution over time. Git tracks intent changes; snapshots track observed data changes.
-- **Trust tier design** — built for Tier 1 (same repo, full lineage). Tier 2 (registry integration) and Tier 3 (cross-org webhooks) are explicitly deferred.
+Required minimum subscriptions:
+- Week 3 → Week 4 (verdicts → cartographer)
+- Week 4 → Week 7 (lineage → enforcer)
+- Week 5 → Week 7 (events → enforcer)
+- LangSmith → Week 7 (traces → AI extensions)
 
 ## Dependencies
 
-| Package | Purpose |
-|---|---|
-| `pandas` | Column profiling and data analysis |
-| `numpy` | Numeric statistics |
-| `pyyaml` | Bitol YAML contract serialization |
-| `anthropic` | Claude API for LLM column annotation |
-| `python-dotenv` | `.env` file loading |
-| `jsonschema` | JSON schema validation utilities |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | No | Claude API key for LLM annotation. Falls back to domain-aware placeholder annotations if absent. |
+```
+pandas, numpy, pyyaml, anthropic, python-dotenv, jsonschema
+```
