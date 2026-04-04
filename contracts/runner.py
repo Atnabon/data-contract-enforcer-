@@ -251,6 +251,9 @@ def _check_maximum(col_name: str, maximum: float,
         if val is not None and val > maximum:
             failing.append(str(val))
 
+    # Confidence/score range violations are CRITICAL
+    severity = "CRITICAL" if "confidence" in col_name else "HIGH"
+
     if failing:
         return ValidationResult(
             check_id=check_id,
@@ -259,7 +262,7 @@ def _check_maximum(col_name: str, maximum: float,
             status="FAIL",
             actual_value=f"max observed = {max(float(x) for x in failing):.4f}",
             expected=f"<= {maximum}",
-            severity="HIGH",
+            severity=severity,
             records_failing=len(failing),
             sample_failing=failing[:3],
             message=f"Column '{col_name}' has {len(failing)} values above maximum {maximum}.",
@@ -271,7 +274,7 @@ def _check_maximum(col_name: str, maximum: float,
         status="PASS",
         actual_value=f"all <= {maximum}",
         expected=f"<= {maximum}",
-        severity="HIGH",
+        severity=severity,
         message=f"Column '{col_name}' — all values meet maximum {maximum}.",
     )
 
@@ -608,9 +611,86 @@ def _flatten_record(record: Dict) -> Dict:
     return flat
 
 
+def _check_statistical_drift(
+    col_name: str,
+    records: List[Dict],
+    baselines_path: str,
+    check_id: str,
+) -> Optional[ValidationResult]:
+    """
+    Statistical drift detection: compare current mean against stored baseline.
+    Emit WARNING at 2 stddev deviation and FAIL at 3 stddev.
+    """
+    bp = Path(baselines_path)
+    if not bp.exists():
+        return None
+
+    with open(bp) as f:
+        baselines = json.load(f).get("columns", {})
+    if col_name not in baselines:
+        return None
+
+    values = [_coerce_numeric(r.get(col_name)) for r in records]
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+
+    import statistics
+    current_mean = statistics.mean(values)
+    baseline = baselines[col_name]
+    b_mean = baseline["mean"]
+    b_stddev = max(baseline.get("stddev", 0.001), 1e-9)
+
+    z_score = abs(current_mean - b_mean) / b_stddev
+
+    if z_score > 3:
+        return ValidationResult(
+            check_id=check_id,
+            column_name=col_name,
+            check_type="statistical_drift",
+            status="FAIL",
+            actual_value=f"mean={current_mean:.4f}, z={z_score:.1f}",
+            expected=f"mean within 3 stddev of baseline {b_mean:.4f}",
+            severity="HIGH",
+            records_failing=len(values),
+            message=(
+                f"Statistical drift FAIL: '{col_name}' mean drifted {z_score:.1f} stddev "
+                f"from baseline (current={current_mean:.4f}, baseline={b_mean:.4f}). "
+                f"Possible scale change detected."
+            ),
+        )
+    elif z_score > 2:
+        return ValidationResult(
+            check_id=check_id,
+            column_name=col_name,
+            check_type="statistical_drift",
+            status="WARN",
+            actual_value=f"mean={current_mean:.4f}, z={z_score:.1f}",
+            expected=f"mean within 2 stddev of baseline {b_mean:.4f}",
+            severity="MEDIUM",
+            records_failing=0,
+            message=(
+                f"Statistical drift WARNING: '{col_name}' approaching drift threshold "
+                f"({z_score:.1f} stddev from baseline)."
+            ),
+        )
+    return ValidationResult(
+        check_id=check_id,
+        column_name=col_name,
+        check_type="statistical_drift",
+        status="PASS",
+        actual_value=f"mean={current_mean:.4f}, z={z_score:.1f}",
+        expected=f"mean within 2 stddev of baseline {b_mean:.4f}",
+        severity="LOW",
+        message=f"Statistical drift check passed for '{col_name}' (z={z_score:.1f}).",
+    )
+
+
 def run_validation(
     source_path: str,
     contract_path: str,
+    mode: str = "AUDIT",
+    baselines_path: str = "schema_snapshots/baselines.json",
 ) -> ValidationReport:
     """
     Run all contract clauses against the source JSONL.
@@ -694,6 +774,15 @@ def run_validation(
     if "recorded_at" in schema:
         results.append(_check_temporal_ordering("recorded_at", flat_records, next_id("TEMP")))
 
+    # Statistical drift checks for numeric columns
+    for col_name, clause in schema.items():
+        if clause.get("type") in ("number", "integer"):
+            drift_result = _check_statistical_drift(
+                col_name, flat_records, baselines_path, next_id("DRIFT")
+            )
+            if drift_result is not None:
+                results.append(drift_result)
+
     # Tally
     passed  = sum(1 for r in results if r.status == "PASS")
     failed  = sum(1 for r in results if r.status == "FAIL")
@@ -761,12 +850,16 @@ def main():
                         help="Path to the Bitol contract YAML file")
     parser.add_argument("--output",   default="validation_reports",
                         help="Directory to write the JSON validation report")
+    parser.add_argument("--mode", default="AUDIT",
+                        choices=["AUDIT", "WARN", "ENFORCE"],
+                        help="Enforcement mode: AUDIT (log only), WARN (block on CRITICAL), ENFORCE (block on CRITICAL+HIGH)")
     args = parser.parse_args()
 
     print(f"[1/3] Loading contract: {args.contract}")
     print(f"[2/3] Validating:       {args.source}")
+    print(f"       Mode:            {args.mode}")
 
-    report = run_validation(args.source, args.contract)
+    report = run_validation(args.source, args.contract, mode=args.mode)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -781,9 +874,27 @@ def main():
     print(f"[3/3] Report written: {out_path}")
     print_summary(report)
 
-    # Exit with non-zero if any checks failed
-    if report.failed > 0:
-        raise SystemExit(1)
+    # Enforcement mode determines exit behavior
+    # AUDIT: log only, never block
+    # WARN: block on CRITICAL violations only
+    # ENFORCE: block on CRITICAL and HIGH violations
+    if args.mode == "AUDIT":
+        print(f"  Mode AUDIT: logging only, pipeline continues.")
+    elif args.mode == "WARN":
+        critical = sum(1 for r in report.results if r.status == "FAIL" and r.severity == "CRITICAL")
+        if critical > 0:
+            print(f"  Mode WARN: {critical} CRITICAL violation(s) — pipeline BLOCKED.")
+            raise SystemExit(1)
+        print(f"  Mode WARN: no CRITICAL violations, pipeline continues.")
+    elif args.mode == "ENFORCE":
+        blocking = sum(
+            1 for r in report.results
+            if r.status == "FAIL" and r.severity in ("CRITICAL", "HIGH")
+        )
+        if blocking > 0:
+            print(f"  Mode ENFORCE: {blocking} CRITICAL/HIGH violation(s) — pipeline BLOCKED.")
+            raise SystemExit(1)
+        print(f"  Mode ENFORCE: no CRITICAL/HIGH violations, pipeline continues.")
 
 
 if __name__ == "__main__":
